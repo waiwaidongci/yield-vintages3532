@@ -1,0 +1,2 @@
+import {esc,fmt} from '../utils/format.js';
+export function hundredTable(cells){if(!cells||!cells.length)return '<div class="empty">尚无格值。</div>';const cols=['日期','试制线','班次','批数','分子原数','分母原数','分子格值','分母格值','良率','上版分子','上版分母','已改'];return '<div class="table-wrap"><table><thead><tr>'+cols.map(c=>`<th>${esc(c)}</th>`).join('')+'</tr></thead><tbody>'+cells.map(c=>`<tr class="${c.已改==='是'?'changed':''}">${cols.map(k=>`<td>${k==='良率'?(c[k]*100).toFixed(2)+'%':k==='上版分子'||k==='上版分母'?fmt(c[k]):fmt(c[k])}</td>`).join('')}</tr>`).join('')+'</tbody></table></div>'}

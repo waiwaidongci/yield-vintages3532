@@ -5,7 +5,12 @@
 ## 业务场景与工作流
 模拟客户：砚泉研究协作组，12位业务与分析人员。每月研究明细先从`yield-vintages-202611.csv`录入底稿，经口径冻结、Python核算、负责人复核后向业务阅读者交付站内CSV。原有流程依靠人工表格抄算，痛点为口径版本难追溯、重复计算易错、复核与交付脱节。
 
-模块：业务总览、业务底稿、新建口径版本、异步核算与复核、定时交付、站内收件箱、审计。底稿可新增/修改/删除；口径仅新增版本；报告提交时冻结来源与版本并保存SHA256。定时交付引用已复核报告快照，worker到期写入数据库，业务阅读者下载。
+模块：业务总览、业务底稿、新建口径版本、异步核算与复核、百件版公布、定时交付、站内收件箱、审计。底稿可新增/修改/删除；口径仅新增版本；报告提交时冻结来源与版本并保存SHA256。定时交付引用已复核报告快照，worker到期写入数据库，业务阅读者下载。
+
+## 百件版公布（新增）
+已复核报告的整版结果按“百件”为单位公布：按日期×试制线×班次分格，每格分子/分母格值只能取该格原数的向下或向上取整；任取两项分组的小计等于格值相加，且落在该组原数小计的向下/向上取整中；厂总数等于格值相加，且等于原数总数的四舍五入；格内分子格值不超过分母格值。在满足全部约束的整版里，优先让与“同期间同口径上版”不同的格子最少（同一计算标准下同期间同口径的上版才可能复用），再用与四舍五入不一致的格值个数决胜。分母规则仍是逐批按冻结口径求分子/分母后求和，不对批次率做平均。
+
+求解是精确整数规划（HiGHS）：只有求解器给出最优证明、且独立校验（格值范围、小计=格值相加、小计落在原数上下取整、厂总数=原数四舍五入、格内分子≤分母、目标值重算一致）全部通过才公布；无解、未证最优、超过 30 秒一律拒绝并在工单上写明原因。并发公布时在槽位行锁内复核“上版是否已换”，已换则拒绝；同一请求标识重试返回同一张工单，不重复出版本。页面“百件版公布”可发起、查询公布的整版（CSV 下载）或失败原因。
 
 ## 算法口径
 版本化良率分母规则、加权汇总与按线/班次差异归因。分母规则手算；大批小批汇总不能均值；更新规则旧run不变。
@@ -32,14 +37,14 @@ docker compose exec -T backend python -m scripts.seed_demo
 
 |角色|邮箱|密码|权限|
 |---|---|---|---|
-|admin|admin@demo.local|Demo2026!|全部底稿、口径版本、核算、复核、调度|
-|analyst|analyst@demo.local|Demo2026!|底稿增改删、核算、导出；无复核/调度/口径写权限|
+|admin|admin@demo.local|Demo2026!|全部底稿、口径版本、核算、复核、百件版、调度|
+|analyst|analyst@demo.local|Demo2026!|底稿增改删、核算、导出、发起百件版；无复核/调度/口径写权限|
 |viewer|viewer@demo.local|Demo2026!|只读；仅可下载已复核报告与站内交付|
 
 ## 工程结构与开发
-Python3.11/FastAPI/SQLAlchemy/Redis，MySQL8；前端原生HTML/CSS/JS ES modules，Nginx代理`/api/`剥前缀至后端。`frontend/src`按api/stores/pages/components/hooks/utils/router/constants/types拆分；`backend/src`按models/schemas/services/controllers/routes/middlewares/config/utils/constants拆分；`backend/scripts/seed_demo.py`自然键幂等且不覆盖用户修改。SQLAlchemy启动创建初始结构，迁移说明在backend/migrations。
+Python3.11/FastAPI/SQLAlchemy/Redis，MySQL8；前端原生HTML/CSS/JS ES modules，Nginx代理`/api/`剥前缀至后端。`frontend/src`按api/stores/pages/components/hooks/utils/router/constants/types拆分；`backend/src`按models/schemas/services/controllers/routes/middlewares/config/utils/constants拆分；`backend/scripts/seed_demo.py`自然键幂等且不覆盖用户修改。SQLAlchemy启动创建初始结构，迁移说明在backend/migrations（百件版见002）。报告复核后可发起百件版，由worker求解并公布。
 
-后端开发：在backend安装requirements，设置DATABASE_URL/REDIS_URL/JWT_SECRET，`uvicorn src.main:app --reload`；前端可用Nginx或带同等代理的静态开发服务器。前后端全部业务计算在Python。
+后端开发：在backend安装requirements（含 scipy/HiGHS），设置DATABASE_URL/REDIS_URL/JWT_SECRET，`uvicorn src.main:app --reload`；测试 `python -m pytest tests`；前端可用Nginx或带同等代理的静态开发服务器。前后端全部业务计算在Python。
 
 环境变量：COMPOSE_PROJECT_NAME、FRONTEND_PORT、BACKEND_PORT、DB_PORT、JWT_SECRET（部署替换）、DATABASE_URL、REDIS_URL、SEED_DEMO。`.env`不入Git。数据库/Redis/共享产物为命名卷。共享角色枚举admin/analyst/viewer与状态queued/running/completed/failed分别定义于backend/src/constants/enums.py和frontend/src/constants/enums.js。两个中间件：统一可恢复校验错误、每IP每分钟360请求限流。
 

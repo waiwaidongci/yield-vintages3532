@@ -3,10 +3,11 @@ from pathlib import Path
 import redis
 from src.config.database import Base,engine,Session
 from src.config.settings import REDIS_URL
-from src.models import identity,source,run
+from src.models import identity,source,run,hundreds
 from src.models.run import Run
 from src.services.calculation import calculate
 from src.services.delivery import tick
+from src.services.hundreds import process as process_hundred, JOB_QUEUE
 Base.metadata.create_all(engine)
 r=redis.Redis.from_url(REDIS_URL)
 while True:
@@ -21,6 +22,11 @@ while True:
      try: job.result=calculate(job.snapshot['sources'],job.snapshot['policy']);job.status='completed'
      except Exception as exc: job.status='failed';job.error=str(exc);traceback.print_exc()
      db.commit()
+  item=r.lpop(JOB_QUEUE)
+  if item:
+   with Session() as db:
+    try: process_hundred(db,int(item))
+    except Exception: traceback.print_exc()
   with Session() as db: tick(db)
  except Exception: traceback.print_exc()
  time.sleep(1)
